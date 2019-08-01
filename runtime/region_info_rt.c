@@ -419,8 +419,7 @@ void* region_info_profile_fn(void *arg) {
     }
     region_info_get_accesses(NULL);
 
-    printf("*-----------------*\n");
-    printf("| BEG REGION INFO |\n");
+    printf("*-BEG REGION INFO-*\n");
     printf("*-----------------*\n");
     hash_table_traverse(all_site_reads, site, n_reads) {
         printf("site %llu: %llu\n", site, *n_reads);
@@ -431,8 +430,7 @@ void* region_info_profile_fn(void *arg) {
             printf("    site %llu: %llu\n", site, *n_reads);
         }
     }
-    printf("*-----------------*\n");
-    printf("| END REGION INFO |\n");
+    printf("*-END REGION INFO-*\n");
     printf("*-----------------*\n");
 }
 

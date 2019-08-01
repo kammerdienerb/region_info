@@ -1,0 +1,169 @@
+# postprocess.bjou
+
+
+using import "io.bjou"
+using import "rbtree.bjou"
+
+extern sscanf(char*, char*, ...) : int
+
+main()
+
+alloc_tree       : rbtree$(u64, string)
+norm_alloc_tree  : rbtree$(u64, u64)
+region_tree      : rbtree$(u64, string)
+norm_region_tree : rbtree$(u64, u64)
+
+proc main() {
+    input     := file.open(env.args()[1].c_str(), file.READ)
+    site_file := file.open(env.args()[2].c_str(), file.READ)
+
+    alloc_tree       = rbtree$(u64, string).create()
+    norm_alloc_tree  = rbtree$(u64, u64).create()
+    region_tree      = rbtree$(u64, string).create()
+    norm_region_tree = rbtree$(u64, u64).create()
+
+    process_site_file(site_file)
+    process_input_file(input)
+
+    site_file.close()
+    input.close()
+}
+
+proc process_site_file(f : file ref) {
+    lines           := f.lines()
+    site_id         := 0u64
+    buff            : char[512]
+
+    foreach ref line in lines {
+        chomp(line)
+
+        if line.find("allocation") == 0 {
+            sscanf(line.c_str(), "allocation site %llu: in %512[^\n]", &site_id, buff)
+            alloc_tree.insert(site_id, str(buff))
+        } else if line.find("parallel") == 0 {
+            sscanf(line.c_str(), "parallel region %llu: in %512[^\n]", &site_id, buff)
+            region_tree.insert(site_id, str(buff))
+        } else \die{ "bad input" }
+    }
+    
+    for i := 0, it := alloc_tree.iter(); not it.is_end(); it.next(), i += 1 {
+        norm_alloc_tree.insert(it.val().0, i)
+    }
+    
+    for i := 0, it := region_tree.iter(); not it.is_end(); it.next(), i += 1 {
+        norm_region_tree.insert(it.val().0, i)
+    }
+}
+
+enum parse_step {
+    PRE,
+    BEG,
+    COLLECT,
+    END
+}
+
+type region_info {
+    valid      : bool
+    id         : u64
+    site_reads : rbtree$(u64, u64)
+
+    proc dump_and_free_if_valid(this) {
+        if this.valid {
+            m_search  := norm_region_tree.lookup(this.id)
+            if search : (u64 ref, u64 ref) = m_search {
+                m_loc_search := region_tree.lookup(this.id)
+                if loc_search : (u64 ref, string ref) = m_loc_search {
+                    print "region % (%):", search.1, loc_search.1.c_str()
+                } else { \die{ "asdf" } }
+            } else { \die{ "asdf" } }
+
+            for it := this.site_reads.iter(); not it.is_end(); it.next() {
+                m_search = norm_alloc_tree.lookup(it.val().0)
+                if search : (u64 ref, u64 ref) = m_search {
+                    print "    site %: %", search.1, it.val().1 
+                } else \die{ "asdf" }
+            }
+
+            this.site_reads.destroy()
+        }
+    }
+}
+
+cur_region            : region_info
+totals_tree           : rbtree$(u64, u64)
+count_sites_to_global := true
+
+proc process_input_file(f : file ref) {
+    lines := f.lines()
+    step  := parse_step.PRE
+
+    totals_tree := rbtree$(u64, u64).create()
+
+    foreach ref line in lines {
+        chomp(line)
+
+        if step == parse_step.PRE {
+            if line.find("BEG REGION INFO") != -1 {
+                step = parse_step.BEG
+            }
+        } else if step == parse_step.BEG {
+            # skip the fancy line
+            step = parse_step.COLLECT
+        } else if step == parse_step.COLLECT {
+            if line.find("END REGION INFO") != -1 {
+                step = parse_step.END
+            } else {
+                process_input_line(line)
+            }
+        } else if step == parse_step.END {
+            break
+        }
+    }
+    cur_region.dump_and_free_if_valid()
+}
+
+proc process_input_line(line : string ref) {
+    site_id     := 0u64
+    count       := 0u64
+
+    if line.find("site") == 0 and count_sites_to_global {
+        sscanf(line.c_str(), "site %llu: %llu", &site_id, &count)
+        totals_tree.insert(site_id, count)  
+    } else if line.find("region") == 0 {
+        if count_sites_to_global {
+            count_sites_to_global = false
+
+            for it := totals_tree.iter(); not it.is_end(); it.next() {
+                m_search  := norm_alloc_tree.lookup(it.val().0)
+                if search : (u64 ref, u64 ref) = m_search {
+                    m_loc_search := alloc_tree.lookup(it.val().0)
+                    if loc_search : (u64 ref, string ref) = m_loc_search {
+                        print "site % (%): %", search.1, loc_search.1.c_str(), it.val().1
+                    } else { \die{ "asdf" } }
+                } else { \die{ "asdf" } }
+            }
+            
+            print ""
+        }
+        
+        cur_region.dump_and_free_if_valid()
+
+        sscanf(line.c_str(), "region %llu:", &site_id)
+
+        cur_region = { region_info:
+            .valid      = true,
+            .id         = site_id,
+            .site_reads = rbtree$(u64, u64).create(),
+        }
+    } else if line.find("site") > 0 {
+        sscanf(line.c_str(), "    site %llu: %llu", &site_id, &count)
+        cur_region.site_reads.insert(site_id, count)
+    } else \die{ "bad input" }
+    
+}
+
+proc __inline__ chomp(s : string ref) {
+    if s.len() > 0 {
+        if s.back() == '\n' { s.pop() }
+    }
+}
